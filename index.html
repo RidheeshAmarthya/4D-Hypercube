@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>4D Hypercube Visualization with Shadow</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <script>
+        let scene, camera, renderer, hypercube, shadowCube, controls;
+
+        const vertices = [
+            [-1, -1, -1, -1], [1, -1, -1, -1], [1, 1, -1, -1], [-1, 1, -1, -1],
+            [-1, -1, 1, -1], [1, -1, 1, -1], [1, 1, 1, -1], [-1, 1, 1, -1],
+            [-1, -1, -1, 1], [1, -1, -1, 1], [1, 1, -1, 1], [-1, 1, -1, 1],
+            [-1, -1, 1, 1], [1, -1, 1, 1], [1, 1, 1, 1], [-1, 1, 1, 1]
+        ];
+
+        const edges = [
+            [0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4],
+            [0, 4], [1, 5], [2, 6], [3, 7], [8, 9], [9, 10], [10, 11], [11, 8],
+            [12, 13], [13, 14], [14, 15], [15, 12], [8, 12], [9, 13], [10, 14], [11, 15],
+            [0, 8], [1, 9], [2, 10], [3, 11], [4, 12], [5, 13], [6, 14], [7, 15]
+        ];
+
+        const params = {
+            rotationXY: 0,
+            rotationXZ: 0,
+            rotationXW: 0,
+            rotationYZ: 0,
+            rotationYW: 0,
+            rotationZW: 0,
+            scale: 1,
+            autoRotate: true,
+            showShadow: true
+        };
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 5;
+
+            renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            hypercube = new THREE.Object3D();
+            scene.add(hypercube);
+
+            const material = new THREE.LineBasicMaterial({ color: 0xffffff });
+
+            edges.forEach(edge => {
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Array(6).fill(0), 3));
+                const line = new THREE.Line(geometry, material);
+                hypercube.add(line);
+            });
+
+            // Create shadow cube
+            shadowCube = new THREE.Object3D();
+            scene.add(shadowCube);
+
+            const shadowMaterial = new THREE.LineBasicMaterial({ color: 0x888888 });
+            const cubeEdges = [
+                [0, 1], [1, 2], [2, 3], [3, 0],
+                [4, 5], [5, 6], [6, 7], [7, 4],
+                [0, 4], [1, 5], [2, 6], [3, 7]
+            ];
+
+            cubeEdges.forEach(edge => {
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Array(6).fill(0), 3));
+                const line = new THREE.Line(geometry, shadowMaterial);
+                shadowCube.add(line);
+            });
+
+            setupGUI();
+            animate();
+        }
+
+        function setupGUI() {
+            const gui = new dat.GUI();
+            gui.add(params, 'rotationXY', 0, Math.PI * 2);
+            gui.add(params, 'rotationXZ', 0, Math.PI * 2);
+            gui.add(params, 'rotationXW', 0, Math.PI * 2);
+            gui.add(params, 'rotationYZ', 0, Math.PI * 2);
+            gui.add(params, 'rotationYW', 0, Math.PI * 2);
+            gui.add(params, 'rotationZW', 0, Math.PI * 2);
+            gui.add(params, 'scale', 0.1, 2);
+            gui.add(params, 'autoRotate');
+            gui.add(params, 'showShadow');
+        }
+
+        function rotatePoint(point, angle, axis1, axis2) {
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            const rotated = [...point];
+            rotated[axis1] = point[axis1] * cos - point[axis2] * sin;
+            rotated[axis2] = point[axis1] * sin + point[axis2] * cos;
+            return rotated;
+        }
+
+        function projectTo3D(point) {
+            const w = 2 / (2 + point[3]);
+            return [point[0] * w, point[1] * w, point[2] * w];
+        }
+
+        function updateHypercube() {
+            let rotatedVertices = vertices.map(v => {
+                let rotated = [...v];
+                rotated = rotatePoint(rotated, params.rotationXY, 0, 1);
+                rotated = rotatePoint(rotated, params.rotationXZ, 0, 2);
+                rotated = rotatePoint(rotated, params.rotationXW, 0, 3);
+                rotated = rotatePoint(rotated, params.rotationYZ, 1, 2);
+                rotated = rotatePoint(rotated, params.rotationYW, 1, 3);
+                rotated = rotatePoint(rotated, params.rotationZW, 2, 3);
+                return projectTo3D(rotated);
+            });
+
+            edges.forEach((edge, i) => {
+                const [a, b] = edge;
+                const line = hypercube.children[i];
+                const positions = line.geometry.attributes.position.array;
+                const vertexA = rotatedVertices[a];
+                const vertexB = rotatedVertices[b];
+                positions.set([...vertexA, ...vertexB]);
+                line.geometry.attributes.position.needsUpdate = true;
+            });
+
+            hypercube.scale.setScalar(params.scale);
+
+            // Update shadow cube
+            const shadowVertices = rotatedVertices.slice(0, 8);  // Use only the first 8 vertices for the shadow cube
+            shadowCube.children.forEach((line, i) => {
+                const [a, b] = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]][i];
+                const positions = line.geometry.attributes.position.array;
+                const vertexA = shadowVertices[a];
+                const vertexB = shadowVertices[b];
+                positions.set([...vertexA, ...vertexB]);
+                line.geometry.attributes.position.needsUpdate = true;
+            });
+
+            shadowCube.scale.setScalar(params.scale);
+            shadowCube.position.set(2, -2, 0);  // Position the shadow cube
+            shadowCube.visible = params.showShadow;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (params.autoRotate) {
+                params.rotationXY += 0.01;
+                params.rotationXZ += 0.01;
+                params.rotationXW += 0.01;
+                params.rotationYZ += 0.01;
+                params.rotationYW += 0.01;
+                params.rotationZW += 0.01;
+            }
+            updateHypercube();
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        init();
+    </script>
+</body>
+</html>
